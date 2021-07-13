@@ -74,7 +74,7 @@ class HistoryListDialog(wx.Dialog):
 
 	def update(self):
 		self.historyListBox.DeleteAllItems()
-		[self.historyListBox.Append([entry]) for entry in reversed(self.pluginInstance._history)]
+		[self.historyListBox.Append([self.pluginInstance.getSequenceText(entry)]) for entry in reversed(self.pluginInstance._history)]
 
 	def processKey(self, event):
 		keyCode = event.GetKeyCode()
