@@ -14,98 +14,122 @@ from globalCommands import SCRCAT_SPEECH
 import globalPluginHandler
 import gui
 from queueHandler import eventQueue, queueFunction
+from scriptHandler import getLastScriptRepeatCount, script
 from speech import speech
 import speechViewer
 import tones
-import ui
 
 from .interface import *
 
 addonHandler.initTranslation()
 
-oldSpeak = speech.speak
-history_pos = 0
-
-
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def __init__(self, *args, **kwargs):
-		super(GlobalPlugin, self).__init__(*args, **kwargs)
+		super().__init__(*args, **kwargs)
 		confspec = {
-			'maxHistoryLength': 'integer(default=500)',
-			'trimWhitespaceFromStart': 'boolean(default=false)',
-			'trimWhitespaceFromEnd': 'boolean(default=false)',
+			"maxHistoryLength": "integer(default=500)",
+			"whitespaceStrip": "integer(default=2)",
 		}
-		config.conf.spec['speechHistory'] = confspec
+		config.conf.spec["speechHistory"] = confspec
+		self.dialog = None
+		self._history = deque(maxlen=config.conf["speechHistory"]["maxHistoryLength"])
+		self.history_pos = 0
+		self.localSpeak = speech.speak
+		speech.speak = self.speakDecorator(speech.speak)
 		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(SpeechHistorySettingsPanel)
-
-		self._history = deque(maxlen=config.conf['speechHistory']['maxHistoryLength'])
-		global oldSpeak
-		oldSpeak = speech.speak
-		speech.speak = self.mySpeak
-
-	def script_copyLast(self, gesture):
-		text = self.getSequenceText(self._history[history_pos])
-		if config.conf['speechHistory']['trimWhitespaceFromStart']:
-			text = text.lstrip()
-		if config.conf['speechHistory']['trimWhitespaceFromEnd']:
-			text = text.rstrip()
-		if api.copyToClip(text):
-			tones.beep(1500, 120)
-
-	# Translators: Documentation string for copy currently selected speech history item script
-	script_copyLast.__doc__ = _('Copy the currently selected speech history item to the clipboard, which by default will be the most recently spoken text by NVDA.')
-	script_copyLast.category = SCRCAT_SPEECH
-
-	def script_prevString(self, gesture):
-		global history_pos
-		history_pos += 1
-		if history_pos > len(self._history) - 1:
-			tones.beep(200, 100)
-			history_pos -= 1
-
-		oldSpeak(self._history[history_pos])
-
-	# Translators: Documentation string for previous speech history item script
-	script_prevString.__doc__ = _('Review the previous item in NVDA\'s speech history.')
-	script_prevString.category = SCRCAT_SPEECH
-
-	def script_nextString(self, gesture):
-		global history_pos
-		history_pos -= 1
-		if history_pos < 0:
-			tones.beep(200, 100)
-			history_pos += 1
-
-		oldSpeak(self._history[history_pos])
-
-	# Translators: Documentation string for next speech history item script
-	script_nextString.__doc__ = _('Review the next item in NVDA\'s speech history.')
-	script_nextString.category = SCRCAT_SPEECH
 
 	def terminate(self, *args, **kwargs):
 		super().terminate(*args, **kwargs)
-		speech.speak = oldSpeak
 		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(SpeechHistorySettingsPanel)
 
+	def speakDecorator(self, func):
+		def wrapper(sequence, *args, **kwargs):
+			result = func(sequence, *args, **kwargs)
+			text = self.getSequenceText(sequence)
+			if text and not text.isspace():
+				queueFunction(eventQueue, self.append_to_history, sequence)
+			return result
+		return wrapper
+
 	def append_to_history(self, seq):
-		global history_pos
 		seq = [command for command in seq if not isinstance(command, FocusLossCancellableSpeechCommand)]
 		self._history.appendleft(seq)
-		history_pos = 0
-
-	def mySpeak(self, sequence, *args, **kwargs):
-		print(sequence)
-		oldSpeak(sequence, *args, **kwargs)
-		text = self.getSequenceText(sequence)
-		if text:
-			queueFunction(eventQueue, self.append_to_history, sequence)
 
 	def getSequenceText(self, sequence):
 		return speechViewer.SPEECH_ITEM_SEPARATOR.join([x for x in sequence if isinstance(x, str)])
 
-	__gestures = {
-		"kb:f12":"copyLast",
-		"kb:shift+f11":"prevString",
-		"kb:shift+f12":"nextString",
-	}
+	def copyLastItem(self, text, strip = False):
+		if strip:
+			whitespaceStrip = config.conf["speechHistory"]["whitespaceStrip"]
+			if whitespaceStrip == 0:
+				text = text.lstrip()
+			elif whitespaceStrip == 1:
+				text = text.rstrip()
+			else:
+				text = text.strip()
+		res = api.copyToClip(text)
+		if res:
+			return True
+		return False
 
+	def moveToItem(self, direction):
+		if direction == 1:
+			self.history_pos += 1
+			if self.history_pos > len(self._history) - 1:
+				tones.beep(200, 100)
+				self.history_pos -= 1
+		else:
+			self.history_pos -= 1
+			if self.history_pos < 0:
+				tones.beep(200, 100)
+				self.history_pos += 1
+		self.localSpeak(self._history[self.history_pos])
+
+	def openHistoryListDialog(self):
+		gui.mainFrame.prePopup()
+		self.dialog = HistoryListDialog(gui.mainFrame, self)
+		self.dialog.update()
+		self.dialog.Show()
+		gui.mainFrame.postPopup()
+
+	@script(
+		# Translators: message presented in input mode, when a keystroke of an addon script is pressed.
+		description=_("Show messages list."),
+		gesture="kb:NVDA+shift+f12"
+	)
+	def script_showHistoryListDialog(self, gesture):
+		wx.CallAfter(self.openHistoryListDialog)
+
+	@script(
+		# Translators: message presented in input mode, when a keystroke of an addon script is pressed.
+		description = _("Copy the currently selected speech history item to the clipboard, which by default will be the most recently spoken text by NVDA."),
+		category = SCRCAT_SPEECH,
+		gesture = "kb:f12"
+	)
+	def script_copyLast(self, gesture):
+		text = self.getSequenceText(self._history[self.history_pos])
+		repeat = getLastScriptRepeatCount()
+		if repeat > 0:
+			if self.copyLastItem(text, True):
+				tones.beep(1500, 120)
+		else:
+			if self.copyLastItem(text):
+				tones.beep(1000, 120)
+
+	@script(
+		# Translators: message presented in input mode, when a keystroke of an addon script is pressed.
+		description = _("Review the previous item in NVDA's speech history."),
+		category = SCRCAT_SPEECH,
+		gesture = "kb:shift+f11"
+	)
+	def script_prevString(self, gesture):
+			self.moveToItem(1)
+
+	@script(
+		# Translators: message presented in input mode, when a keystroke of an addon script is pressed.
+		description = _("Review the next item in NVDA's speech history."),
+		category = SCRCAT_SPEECH,
+		gesture = "kb:shift+f12"
+	)
+	def script_nextString(self, gesture):
+			self.moveToItem(-1)
