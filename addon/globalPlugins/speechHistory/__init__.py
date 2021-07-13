@@ -6,21 +6,20 @@
 
 from collections import deque
 
-import wx
-
 import addonHandler
 import api
 import config
+from eventHandler import FocusLossCancellableSpeechCommand
+from globalCommands import SCRCAT_SPEECH
 import globalPluginHandler
 import gui
-from gui import nvdaControls
 from queueHandler import eventQueue, queueFunction
-import speech
+from speech import speech
 import speechViewer
 import tones
 import ui
 
-from globalCommands import SCRCAT_SPEECH
+from .interface import *
 
 addonHandler.initTranslation()
 
@@ -90,10 +89,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	def append_to_history(self, seq):
 		global history_pos
+		seq = [command for command in seq if not isinstance(command, FocusLossCancellableSpeechCommand)]
 		self._history.appendleft(seq)
 		history_pos = 0
 
 	def mySpeak(self, sequence, *args, **kwargs):
+		print(sequence)
 		oldSpeak(sequence, *args, **kwargs)
 		text = self.getSequenceText(sequence)
 		if text:
@@ -108,24 +109,3 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		"kb:shift+f12":"nextString",
 	}
 
-
-class SpeechHistorySettingsPanel(gui.SettingsPanel):
-	# Translators: the label/title for the Speech History settings panel.
-	title = _('Speech History')
-
-	def makeSettings(self, settingsSizer):
-		helper = gui.guiHelper.BoxSizerHelper(self, sizer=settingsSizer)
-		# Translators: the label for the preference to choose the maximum number of stored history entries
-		maxHistoryLengthLabelText = _('&Maximum number of history entries (requires NVDA restart to take effect)')
-		self.maxHistoryLengthEdit = helper.addLabeledControl(maxHistoryLengthLabelText, nvdaControls.SelectOnFocusSpinCtrl, min=1, max=5000, initial=config.conf['speechHistory']['maxHistoryLength'])
-		# Translators: the label for the preference to trim whitespace from the start of text
-		self.trimWhitespaceFromStartCB = helper.addItem(wx.CheckBox(self, label=_('Trim whitespace from &start when copying text')))
-		self.trimWhitespaceFromStartCB.SetValue(config.conf['speechHistory']['trimWhitespaceFromStart'])
-		# Translators: the label for the preference to trim whitespace from the end of text
-		self.trimWhitespaceFromEndCB = helper.addItem(wx.CheckBox(self, label=_('Trim whitespace from &end when copying text')))
-		self.trimWhitespaceFromEndCB.SetValue(config.conf['speechHistory']['trimWhitespaceFromEnd'])
-
-	def onSave(self):
-		config.conf['speechHistory']['maxHistoryLength'] = self.maxHistoryLengthEdit.GetValue()
-		config.conf['speechHistory']['trimWhitespaceFromStart'] = self.trimWhitespaceFromStartCB.GetValue()
-		config.conf['speechHistory']['trimWhitespaceFromEnd'] = self.trimWhitespaceFromEndCB.GetValue()
