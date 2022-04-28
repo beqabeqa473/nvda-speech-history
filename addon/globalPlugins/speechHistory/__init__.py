@@ -4,6 +4,7 @@
 # This add-on is free software, licensed under the terms of the GNU General Public License (version 2).
 # See the file LICENSE for more details.
 
+import collections
 from collections import deque
 
 import addonHandler
@@ -19,7 +20,7 @@ from speech import speech
 import speechViewer
 import tones
 
-from .interface import *
+from . import interface
 
 addonHandler.initTranslation()
 
@@ -32,15 +33,21 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		}
 		config.conf.spec["speechHistory"] = confspec
 		self.dialog = None
-		self._history = deque(maxlen=config.conf["speechHistory"]["maxHistoryLength"])
+		self.init_history()
 		self.history_pos = 0
 		self.localSpeak = speech.speak
 		speech.speak = self.speakDecorator(speech.speak)
-		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(SpeechHistorySettingsPanel)
+		interface.init_settings(self.on_save)
 
 	def terminate(self, *args, **kwargs):
 		super().terminate(*args, **kwargs)
-		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(SpeechHistorySettingsPanel)
+		interface.terminate_settings()
+
+	def init_history(self):
+		self._history = deque(maxlen=config.conf["speechHistory"]["maxHistoryLength"])
+
+	def on_save(self):
+		self.init_history()
 
 	def speakDecorator(self, func):
 		def wrapper(sequence, *args, **kwargs):

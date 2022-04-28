@@ -19,7 +19,7 @@ class SpeechHistorySettingsPanel(gui.SettingsPanel):
 	def makeSettings(self, settingsSizer):
 		helper = gui.guiHelper.BoxSizerHelper(self, sizer=settingsSizer)
 		# Translators: the label for the preference to choose the maximum number of stored history entries
-		maxHistoryLengthLabelText = _('&Maximum number of history entries (requires NVDA restart to take effect)')
+		maxHistoryLengthLabelText = _('&Maximum number of history entries')
 		self.maxHistoryLengthEdit = helper.addLabeledControl(maxHistoryLengthLabelText, nvdaControls.SelectOnFocusSpinCtrl, min=1, max=5000, initial=config.conf["speechHistory"]["maxHistoryLength"])
 
 		# Translators: This is the label for a combo box in the speechHistory settings dialog.
@@ -40,6 +40,14 @@ class SpeechHistorySettingsPanel(gui.SettingsPanel):
 	def onSave(self):
 		config.conf["speechHistory"]["maxHistoryLength"] = self.maxHistoryLengthEdit.GetValue()
 		config.conf["speechHistory"]["whitespaceStrip"] = self.whitespaceStripChoice.GetSelection()
+		self.on_save_callback()
+
+def init_settings(on_save_callback):
+	SpeechHistorySettingsPanel.on_save_callback = on_save_callback
+	gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(SpeechHistorySettingsPanel)
+
+def terminate_settings():
+	gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(SpeechHistorySettingsPanel)
 
 
 class HistoryListDialog(wx.Dialog):
